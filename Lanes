@@ -1,0 +1,110 @@
+import cv2
+import numpy as np
+import pyrealsense2 as rs
+import matplotlib.pyplot as plt
+
+# Function to apply a region of interest mask
+def region_of_interest(image):
+    height = image.shape[0]
+    polygons = np.array([
+        [(100, height), (450, 300), (800, 300), (1200, height)]
+    ])
+    mask = np.zeros_like(image)
+    cv2.fillPoly(mask, polygons, 255)
+    masked_image = cv2.bitwise_and(image, mask)
+    return masked_image
+
+# Function to display lines on the image
+def display_lines(image, lines):
+    line_image = np.zeros_like(image)
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line.reshape(4)
+            cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+    return line_image
+
+# Function to compute coordinates of a line from slope and intercept
+def make_coordinates(image, line_parameters):
+    slope, intercept = line_parameters
+    y1 = image.shape[0]
+    y2 = int(y1 * (3 / 5))
+    x1 = int((y1 - intercept) / slope)
+    x2 = int((y2 - intercept) / slope)
+    return np.array([x1, y1, x2, y2])
+
+# Function to average the slopes and intercepts for left and right lane lines
+def average_slope_intercept(image, lines):
+    left_fit = []
+    right_fit = []
+    for line in lines:
+        x1, y1, x2, y2 = line.reshape(4)
+        parameters = np.polyfit((x1, x2), (y1, y2), 1)
+        slope = parameters[0]
+        intercept = parameters[1]
+        if slope < 0:
+            left_fit.append((slope, intercept))
+        else:
+            right_fit.append((slope, intercept))
+
+    left_line = np.array([0, 0, 0, 0])
+    right_line = np.array([0, 0, 0, 0])
+
+    if left_fit:
+        left_fit_average = np.average(left_fit, axis=0)
+        left_line = make_coordinates(image, left_fit_average)
+
+    if right_fit:
+        right_fit_average = np.average(right_fit, axis=0)
+        right_line = make_coordinates(image, right_fit_average)
+
+    return np.array([left_line, right_line])
+
+# Initialize Intel RealSense depth camera
+pipeline = rs.pipeline()
+config = rs.config()
+config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+# Start streaming
+pipeline.start(config)
+
+try:
+    while True:
+        # Capture frame-by-frame
+        frames = pipeline.wait_for_frames()
+        color_frame = frames.get_color_frame()
+        if not color_frame:
+            continue
+
+        # Convert RealSense frame to numpy array
+        frame = np.asanyarray(color_frame.get_data())
+        lane_image = np.copy(frame)
+
+        # Apply grayscale and Gaussian blur
+        gray = cv2.cvtColor(lane_image, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (9, 9), 0)
+        canny = cv2.Canny(blur, 50, 100)
+
+        # Apply region of interest
+        cropped_image = region_of_interest(canny)
+
+        # Detect lines using HoughLinesP
+        lines = cv2.HoughLinesP(cropped_image, 2, np.pi / 180, 100, np.array([]), minLineLength=5, maxLineGap=70)
+        
+        # Get average lines for left and right lanes
+        averaged_lines = average_slope_intercept(lane_image, lines)
+        line_image = display_lines(lane_image, averaged_lines)
+        
+        # Overlay lines on the original frame
+        combo_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1)
+
+        # Display the resulting frame
+        cv2.imshow('Real-Time Lane Detection', combo_image)
+
+        # Press 'ESC' to exit
+        key = cv2.waitKey(1)
+        if key == 27:
+            break
+finally:
+    # Stop streaming
+    pipeline.stop()
+    cv2.destroyAllWindows()
