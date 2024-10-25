@@ -1,48 +1,48 @@
-import cv2
+import pyrealsense2 as rs
 import numpy as np
-import pyrealsense2 as rs  # RealSense SDK
+import cv2
 import matplotlib.pyplot as plt
 
-# Initialize RealSense pipeline
+# Set up the RealSense pipeline for depth streaming
 pipeline = rs.pipeline()
 config = rs.config()
-config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)  # Configure depth stream
+config.enable_stream(rs.stream.depth, 320, 240, rs.format.z16, 30)  # Configure the depth stream resolution
+
+# Start the pipeline
 pipeline.start(config)
 
-def region_of_interest(image, vertices):
-    mask = np.zeros_like(image)
+def region_of_interest_edge(img, vertices):
+    mask = np.zeros_like(img)
     cv2.fillPoly(mask, vertices, 255)
-    return cv2.bitwise_and(image, mask)
+    masked_image = cv2.bitwise_and(img, mask)
+    return masked_image
 
-def detect_edges(depth_image):
-    gray = cv2.convertScaleAbs(depth_image, alpha=0.03)  # Scale to 8-bit grayscale
-    blur = cv2.GaussianBlur(gray, (9, 9), 0)
-    edges = cv2.Canny(blur, 50, 100)
-    return edges
+roi_vertices = [
+    (0, 240),  # Left base point
+    (320, 240),  # Right base point
+    (160, 120)   # Top vertex
+]
 
-def find_lane_lines(image, edges):
-    height, width = image.shape[:2]
-    polygons = np.array([
-        [(100, height), (int(width*0.4), int(height*0.6)),
-         (int(width*0.6), int(height*0.6)), (width - 100, height)]
-    ])
-    masked_edges = region_of_interest(edges, polygons)
+# Define a function to find the longest horizontal line
+def find_longest_horizontal_line(contours):
+    longest_line = None
+    max_length = 0
 
-    lines = cv2.HoughLinesP(masked_edges, 2, np.pi/180, 100, np.array([]), minLineLength=5, maxLineGap=70)
-    return lines
+    for contour in contours:
+        epsilon = 0.001 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
 
-def display_lines(image, lines):
-    line_image = np.zeros_like(image)
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line.reshape(4)
-            cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
-    return line_image
+        for i in range(len(approx) - 1):
+            x1, y1 = approx[i][0]
+            x2, y2 = approx[i + 1][0]
 
-def get_distance_to_point(depth_frame, x, y):
-    # Retrieve the depth value at a specific pixel coordinate
-    distance = depth_frame.get_distance(x, y)
-    return distance
+            if abs(y1 - y2) < 60:
+                length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                if length > max_length:
+                    max_length = length
+                    longest_line = [(x1, y1), (x2, y2)]
+
+    return longest_line
 
 try:
     while True:
@@ -52,35 +52,43 @@ try:
         if not depth_frame:
             continue
 
-        # Convert depth frame to numpy array for processing
+        # Convert depth frame to numpy array
         depth_image = np.asanyarray(depth_frame.get_data())
-        edges = detect_edges(depth_image)
-
-        # Find lane lines
-        lane_lines = find_lane_lines(depth_image, edges)
-        lane_image = display_lines(depth_image, lane_lines)
         
-        # Overlay lane lines on original depth image
-        combo_image = cv2.addWeighted(depth_image, 0.8, lane_image, 1, 1)
+        # Normalize depth image for visualization and edge detection
+        depth_image_normalized = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-        # Get depth for edges on longest horizontal line (if detected)
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        # Apply ROI mask to the depth image
+        cropped_image_edge = region_of_interest_edge(depth_image_normalized, np.array([roi_vertices], np.int32))
+        
+        # Edge detection on depth data
+        edges_edge = cv2.GaussianBlur(cropped_image_edge, (9, 9), 0)
+        edges_edge = cv2.Canny(edges_edge, 100, 400)
+        kernel_edge = np.ones((5, 5), np.uint8)
+        edges_edge = cv2.dilate(edges_edge, kernel_edge, iterations=3)
+
+        # Find contours in the edge-detected image
+        contours, _ = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Find the longest horizontal line
         longest_horizontal_line = find_longest_horizontal_line(contours)
-        
-        if longest_horizontal_line:
+
+        if longest_horizontal_line is not None:
             (x1, y1), (x2, y2) = longest_horizontal_line
-            dist1 = get_distance_to_point(depth_frame, x1, y1)
-            dist2 = get_distance_to_point(depth_frame, x2, y2)
-            cv2.circle(combo_image, (x1, y1), 5, (0, 255, 0), -1)
-            cv2.circle(combo_image, (x2, y2), 5, (0, 255, 0), -1)
-            print(f"Edge Points Distances: {dist1:.2f} m, {dist2:.2f} m")
+            cv2.circle(depth_image_normalized, (x1, y1), 5, (255, 0, 0), -1)
+            cv2.circle(depth_image_normalized, (x2, y2), 5, (255, 0, 0), -1)
+            print(f"Edge points: ({x1}, {y1}) and ({x2}, {y2})")
+        else:
+            print("No horizontal line detected.")
 
-        # Show processed frame
-        cv2.imshow('Lane Detection - Depth Stream', combo_image)
+        # Display the edge detection result
+        cv2.imshow('Depth Edge Detection', edges_edge)
+        cv2.imshow('Detected Edges', depth_image_normalized)
 
+        # Press 'q' to exit
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 finally:
-    # Stop the RealSense pipeline
+    # Stop the pipeline
     pipeline.stop()
     cv2.destroyAllWindows()
