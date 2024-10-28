@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "distance.py", line 81, in <module>
+    line_image = display_lines(lane_image, averaged_lines)
+  File "distance.py", line 29, in display_lines
+    cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+OverflowError: signed integer is greater than maximum
