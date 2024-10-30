@@ -12,3 +12,9 @@ Traceback (most recent call last):
   File "edgepoint.py", line 41, in average_slope_intercept
     for line in lines:
 TypeError: 'NoneType' object is not iterable
+
+Traceback (most recent call last):
+  File "edgepoint.py", line 104, in <module>
+    contours, _ = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+ValueError: too many values to unpack (expected 2)
+
