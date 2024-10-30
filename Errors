@@ -18,3 +18,14 @@ Traceback (most recent call last):
     contours, _ = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 ValueError: too many values to unpack (expected 2)
 
+def display_lines(image, lines):
+    line_image = np.zeros_like(image)
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line.reshape(4)
+	     x1 = np.clip(x1,0,width-1)
+	    y1 = np.clip(y1,0,width-1) 									
+            x2 = np.clip(x2,0,width-1) 					
+            y2 = np.clip(y2,0,width-1)						
+	    cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0))
+    return line_image
