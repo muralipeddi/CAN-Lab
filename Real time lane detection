@@ -1,0 +1,125 @@
+import cv2
+import numpy as np
+import pyrealsense2 as rs
+import matplotlib.pyplot as plt
+
+# Initialize Intel RealSense pipeline
+pipeline = rs.pipeline()
+config = rs.config()
+config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+# Start streaming
+pipeline.start(config)
+
+def region_of_interest(image, polygons):
+    mask = np.zeros_like(image)
+    cv2.fillPoly(mask, polygons, 255)
+    return cv2.bitwise_and(image, mask)
+
+def display_lines(image, lines):
+    line_image = np.zeros_like(image)
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line.reshape(4)
+            cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+    return line_image
+
+def make_coordinates(image, line_parameters):
+    slope, intercept = line_parameters
+    y1 = image.shape[0]
+    y2 = int(y1 * (3 / 5))
+    x1 = int((y1 - intercept) / slope)
+    x2 = int((y2 - intercept) / slope)
+    return np.array([x1, y1, x2, y2])
+
+def average_slope_intercept(image, lines):
+    left_fit = []
+    right_fit = []
+    if lines is None:
+        return np.array([])  # Return empty array if no lines are detected
+
+    for line in lines:
+        x1, y1, x2, y2 = line.reshape(4)
+        parameters = np.polyfit((x1, x2), (y1, y2), 1)
+        slope = parameters[0]
+        intercept = parameters[1]
+        if slope < 0:
+            left_fit.append((slope, intercept))
+        else:
+            right_fit.append((slope, intercept))
+
+    if left_fit:
+        left_fit_average = np.average(left_fit, axis=0)
+        left_line = make_coordinates(image, left_fit_average)
+    else:
+        left_line = np.array([0, 0, 0, 0])
+
+    if right_fit:
+        right_fit_average = np.average(right_fit, axis=0)
+        right_line = make_coordinates(image, right_fit_average)
+    else:
+        right_line = np.array([0, 0, 0, 0])
+
+    return np.array([left_line, right_line])
+
+try:
+    while True:
+        # Capture frame from Intel RealSense
+        frames = pipeline.wait_for_frames()
+        color_frame = frames.get_color_frame()
+        if not color_frame:
+            continue
+
+        # Convert RealSense frame to numpy array
+        frame = np.asanyarray(color_frame.get_data())
+        lane_image = np.copy(frame)
+        gray = cv2.cvtColor(lane_image, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (9, 9), 0)
+        canny = cv2.Canny(blur, 50, 100)
+
+        # Define new polygons for left and right lane regions based on the image
+        height = lane_image.shape[0]
+        polygons_left = np.array([
+            [(700, height), (1850, int(height * 0.5)), (1950, int(height * 0.5)), (1100, height)]
+        ])
+        polygons_right = np.array([
+            [(650, height), (550, int(height * 0.5)), (600, int(height * 0.5)), (750, height)]
+        ])
+
+        # Apply the mask for left and right regions
+        cropped_left = region_of_interest(canny, polygons_left)
+        cropped_right = region_of_interest(canny, polygons_right)
+
+        # Detect lines in both left and right masked images
+        lines_left = cv2.HoughLinesP(cropped_left, 2, np.pi / 180, 100, np.array([]), minLineLength=5, maxLineGap=70)
+        lines_right = cv2.HoughLinesP(cropped_right, 2, np.pi / 180, 100, np.array([]), minLineLength=5, maxLineGap=70)
+
+        # Get averaged lines for left and right lanes separately
+        averaged_lines_left = average_slope_intercept(lane_image, lines_left)
+        averaged_lines_right = average_slope_intercept(lane_image, lines_right)
+
+        # Display and overlay lines on original image, only if lines are detected
+        line_image_left = np.zeros_like(lane_image)
+        line_image_right = np.zeros_like(lane_image)
+
+        if len(averaged_lines_left) > 0:
+            line_image_left = display_lines(lane_image, [averaged_lines_left[0]])
+
+        if len(averaged_lines_right) > 0:
+            line_image_right = display_lines(lane_image, [averaged_lines_right[0]])
+
+        # Combine left and right lane lines onto the original image
+        combo_image = cv2.addWeighted(lane_image, 0.6, line_image_left, 1, 1)
+        combo_image_final = cv2.addWeighted(combo_image, 1, line_image_right, 1, 1)
+
+        # Display the result in real-time
+        cv2.imshow('Lane Detection', combo_image_final)
+
+        # Break the loop if 'q' key is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+finally:
+    # Release resources
+    pipeline.stop()
+    cv2.destroyAllWindows()
