@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import pyrealsense2 as rs  # Intel RealSense SDK
 
 # Configure Intel RealSense
@@ -12,7 +11,7 @@ pipeline.start(config)
 def region_of_interest(image):
     height = image.shape[0]
     polygons = np.array([
-        [(100, height), (200, int(height/2)), (400, int(height/2)), (500, height)]
+        [(100, height), (250, int(height/2)), (400, int(height/2)), (500, height)]
     ])
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
@@ -76,11 +75,13 @@ def find_longest_horizontal_line(contours, left_line, right_line):
 
 try:
     while True:
+        # Capture frame-by-frame
         frames = pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
         if not color_frame:
             continue
 
+        # Convert image to numpy array
         frame = np.asanyarray(color_frame.get_data())
         lane_image = np.copy(frame)
         
