@@ -31,6 +31,15 @@ def display_lines(image, lines):
     return line_image
 
 
-if (0 <= x1 < image.shape[1] and 0 <= x2 < image.shape[1] and
-                0 <= y1 < image.shape[0] and 0 <= y2 < image.shape[0]):
-                cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
+separate.py:51: RankWarning: Polyfit may be poorly conditioned
+  parameters = np.polyfit((x1, x2), (y1, y2), 1)
+separate.py:51: RankWarning: Polyfit may be poorly conditioned
+  parameters = np.polyfit((x1, x2), (y1, y2), 1)
+[ INFO:0] Initialize OpenCL runtime...
+Traceback (most recent call last):
+  File "separate.py", line 101, in <module>
+    right_line_image = display_lines(lane_image, averaged_right_line)
+  File "separate.py", line 36, in display_lines
+    cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
+OverflowError: signed integer is greater than maximum
+
