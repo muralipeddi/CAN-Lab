@@ -29,3 +29,8 @@ def display_lines(image, lines):
             y2 = np.clip(y2,0,width-1)						
 	    cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0))
     return line_image
+
+
+if (0 <= x1 < image.shape[1] and 0 <= x2 < image.shape[1] and
+                0 <= y1 < image.shape[0] and 0 <= y2 < image.shape[0]):
+                cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
