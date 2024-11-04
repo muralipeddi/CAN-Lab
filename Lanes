@@ -92,7 +92,7 @@ try:
         # Convert to numpy array
         frame = np.asanyarray(color_frame.get_data())
         # Process frame for lane detection
-	lane_image = np.copy(frame)
+        lane_image = np.copy(frame)
         gray = cv2.cvtColor(lane_image, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
         canny = cv2.Canny(blur, 50, 150)
@@ -140,7 +140,7 @@ try:
         # Combine lane lines with original image
         combo_image = cv2.addWeighted(lane_image, 0.8, left_line_image, 1, 1)
         combo_image = cv2.addWeighted(combo_image, 1, right_line_image, 1, 1)
-	combo_image = cv2.addWeighted(combo_image, 1, lane_image, 1, 1)
+        combo_image = cv2.addWeighted(combo_image, 1, lane_image, 1, 1)
         # Show the image
         cv2.imshow('Lane Detection', combo_image)
 
