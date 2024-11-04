@@ -1,66 +1,64 @@
-import cv2
+import pyrealsense2 as rs
 import numpy as np
-import pyrealsense2 as rs  # Intel RealSense SDK
-import matplotlib.pyplot as plt
+import cv2
 
-# Configure Intel RealSense
+# Configure Intel RealSense camera
 pipeline = rs.pipeline()
 config = rs.config()
 config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+
+# Start streaming
 pipeline.start(config)
 
-# Align depth frame to color frame
-align = rs.align(rs.stream.color)
-
-def region_of_interest(image):
+def region_of_interest_left(image):
     height = image.shape[0]
     polygons = np.array([
-        [(0, height), (120, 350), (520, 350), (580, height)]
+        [(100, height), (300, height // 2), (400, height // 2), (200, height)]
     ])
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
-    masked_image = cv2.bitwise_and(image, mask)
-    return masked_image
+    return cv2.bitwise_and(image, mask)
+
+def region_of_interest_right(image):
+    height = image.shape[0]
+    polygons = np.array([
+        [(540, height), (400, height // 2), (500, height // 2), (640, height)]
+    ])
+    mask = np.zeros_like(image)
+    cv2.fillPoly(mask, polygons, 255)
+    return cv2.bitwise_and(image, mask)
 
 def display_lines(image, lines):
     line_image = np.zeros_like(image)
-    height, width = image.shape[:2]
     if lines is not None:
         for line in lines:
             x1, y1, x2, y2 = line.reshape(4)
-            x1 = np.clip(x1, 0, width - 1)
-            y1 = np.clip(y1, 0, height - 1)
-            x2 = np.clip(x2, 0, width - 1)
-            y2 = np.clip(y2, 0, height - 1)
-            cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 5)
+            cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
     return line_image
 
 def make_coordinates(image, line_parameters):
     slope, intercept = line_parameters
     y1 = image.shape[0]
-    y2 = int(y1 * (4 / 5))
+    y2 = int(y1 * (3 / 5))
     x1 = int((y1 - intercept) / slope)
     x2 = int((y2 - intercept) / slope)
     return np.array([x1, y1, x2, y2])
 
-def average_slope_intercept(image, lines):
-    left_fit = []
-    right_fit = []
+def average_slope_intercept(image, lines, left=True):
+    fit = []
     for line in lines:
         x1, y1, x2, y2 = line.reshape(4)
         parameters = np.polyfit((x1, x2), (y1, y2), 1)
         slope = parameters[0]
         intercept = parameters[1]
-        if slope < 0:
-            left_fit.append((slope, intercept))
-        else:
-            right_fit.append((slope, intercept))
-    
-    left_line = make_coordinates(image, np.average(left_fit, axis=0)) if left_fit else np.array([0, 0, 0, 0])
-    right_line = make_coordinates(image, np.average(right_fit, axis=0)) if right_fit else np.array([0, 0, 0, 0])
+        if (left and slope < 0) or (not left and slope > 0):
+            fit.append((slope, intercept))
 
-    return np.array([left_line, right_line])
+    if len(fit) > 0:
+        fit_average = np.average(fit, axis=0)
+        return make_coordinates(image, fit_average)
+    else:
+        return np.array([0, 0, 0, 0])
 
 def find_longest_horizontal_line(contours, left_line, right_line):
     longest_line = None
@@ -85,66 +83,71 @@ def find_longest_horizontal_line(contours, left_line, right_line):
 
 try:
     while True:
-        # Capture frame-by-frame
+        # Get frames from the camera
         frames = pipeline.wait_for_frames()
-        aligned_frames = align.process(frames)
-        color_frame = aligned_frames.get_color_frame()
-        depth_frame = aligned_frames.get_depth_frame()
-        
-        if not color_frame or not depth_frame:
+        color_frame = frames.get_color_frame()
+        if not color_frame:
             continue
 
-        # Convert color image to numpy array
+        # Convert to numpy array
         frame = np.asanyarray(color_frame.get_data())
-        lane_image = np.copy(frame)
-        
-        # Grayscale and Canny edge detection
+        # Process frame for lane detection
+	lane_image = np.copy(frame)
         gray = cv2.cvtColor(lane_image, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        canny = cv2.Canny(blur, 50, 100)
-        
-        # Region of Interest
-        cropped_image = region_of_interest(canny)
-        
-        # Hough Lines and averaging
-        lines = cv2.HoughLinesP(cropped_image, 2, np.pi / 180, 100, np.array([]), minLineLength=5, maxLineGap=70)
-        if lines is not None:
-           averaged_lines = average_slope_intercept(lane_image, lines)
-           line_image = display_lines(lane_image, averaged_lines)
+        canny = cv2.Canny(blur, 50, 150)
+
+        # Apply region of interest for left and right lanes
+        cropped_image_left = region_of_interest_left(canny)
+        cropped_image_right = region_of_interest_right(canny)
+
+        # Detect lines in each region
+        lines_left = cv2.HoughLinesP(cropped_image_left, 2, np.pi / 180, 100, minLineLength=10, maxLineGap=5)
+        lines_right = cv2.HoughLinesP(cropped_image_right, 2, np.pi / 180, 100, minLineLength=10, maxLineGap=5)
+
+        # Average lines for left and right lanes
+        if lines_left is not None:
+            averaged_left_line = np.array([average_slope_intercept(lane_image, lines_left, left=True)])
         else:
-           averaged_lines = np.array([[0, 0, 0, 0], [0, 0, 0, 0]])
-           line_image = np.zeros_like(lane_image)
-        
-        # Contours for edge detection
+            averaged_left_line = np.array([[0, 0, 0, 0]])
+
+        if lines_right is not None:
+            averaged_right_line = np.array([average_slope_intercept(lane_image, lines_right, left=False)])
+        else:
+            averaged_right_line = np.array([[0, 0, 0, 0]])
+
+	 # Contours for edge detection
         kernel_edge = np.ones((5, 5), np.uint8)
         edges_edge = cv2.dilate(cropped_image, kernel_edge, iterations=3)
-        contours, _ = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Find the longest horizontal line within the lane boundaries
+        _, contours, hierarchy = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+	 # Find the longest horizontal line within the lane boundaries
         longest_horizontal_line = find_longest_horizontal_line(contours, averaged_lines[0], averaged_lines[1])
 
-        # Mark and measure distance of detected edge points within lanes
+	 # Mark the detected edge points if they fall within lanes
         if longest_horizontal_line:
             (x1, y1), (x2, y2) = longest_horizontal_line
-            # Get depth at these points
-            dist1 = depth_frame.get_distance(x1, y1)
-            dist2 = depth_frame.get_distance(x2, y2)
-            
-            # Draw circles at detected points
             cv2.circle(lane_image, (x1, y1), 10, (0, 255, 0), -1)
             cv2.circle(lane_image, (x2, y2), 10, (0, 255, 0), -1)
-            print(f"Edge points within lanes: ({x1}, {y1}) at {dist1:.2f} meters and ({x2}, {y2}) at {dist2:.2f} meters")
+            print(f"Edge points within lanes: ({x1}, {y1}) and ({x2}, {y2})")
         else:
             print("No horizontal line detected within lane boundaries.")
+        
+	# Display detected left and right lanes
+        left_line_image = display_lines(lane_image, averaged_left_line)
+        right_line_image = display_lines(lane_image, averaged_right_line)
 
-        # Overlay lane and edge lines on the original frame
-        combo_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1)
-        cv2.imshow("Lane Detection and Edge Points", combo_image)
+        # Combine lane lines with original image
+        combo_image = cv2.addWeighted(lane_image, 0.8, left_line_image, 1, 1)
+        combo_image = cv2.addWeighted(combo_image, 1, right_line_image, 1, 1)
+	combo_image = cv2.addWeighted(combo_image, 1, lane_image, 1, 1)
+        # Show the image
+        cv2.imshow('Lane Detection', combo_image)
 
-        # Break the loop on 'q' key press
+        # Exit loop if 'q' is pressed
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-
 finally:
+    # Stop streaming
     pipeline.stop()
     cv2.destroyAllWindows()
