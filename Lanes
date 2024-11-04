@@ -131,10 +131,10 @@ try:
             averaged_right_line = np.array([average_slope_intercept(lane_image, lines_right, left=False)])
         else:
             averaged_right_line = np.array([[0, 0, 0, 0]])
-	# Contours for edge detection
-	cropped_image = region_of_interest(canny)
-	kernel_edge = np.ones((5, 5), np.uint8)
-	
+            
+        cropped_image = region_of_interest(canny)
+        kernel_edge = np.ones((5, 5), np.uint8)
+		# Contours for edge detection
         edges_edge = cv2.dilate(cropped_image, kernel_edge, iterations=3)
         _, contours, hierarchy = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
