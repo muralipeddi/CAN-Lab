@@ -13,7 +13,7 @@ pipeline.start(config)
 def region_of_interest_left(image):
     height = image.shape[0]
     polygons = np.array([
-        [(100, height), (300, height // 2), (400, height // 2), (200, height)]
+        [(0, height), (300, height // 2), (400, height // 2), (200, height)]
     ])
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
@@ -27,22 +27,6 @@ def region_of_interest_right(image):
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
     return cv2.bitwise_and(image, mask)
-
-def region_of_interest(image):
-    height = image.shape[0]
-    polygons = np.array([
-        [(0, height), (120,350),(520,350), (580, height)]
-    ])
-    # polygons_left = np.array([
-    #    [(100, height), (250,350),(280,350), (150, height)]
-    #])
-    #polygons_left = np.array([
-    #    [(500, height), (440,350),(470,350), (610, height)]
-    #])
-    mask = np.zeros_like(image)
-    cv2.fillPoly(mask, polygons, 255)
-    masked_image = cv2.bitwise_and(image, mask)
-    return masked_image
 
 def display_lines(image, lines):
     line_image = np.zeros_like(image)
@@ -76,27 +60,6 @@ def average_slope_intercept(image, lines, left=True):
     else:
         return np.array([0, 0, 0, 0])
 
-def find_longest_horizontal_line(contours, left_line, right_line):
-    longest_line = None
-    max_length = 0
-
-    for contour in contours:
-        epsilon = 0.001 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
-
-        for i in range(len(approx) - 1):
-            x1, y1 = approx[i][0]
-            x2, y2 = approx[i + 1][0]
-
-            # Check if line is horizontal and within lane bounds
-            if abs(y1 - y2) < 60:
-                length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-                if length > max_length and (left_line[0] < x1 < right_line[0] and left_line[2] < x2 < right_line[2]):
-                    max_length = length
-                    longest_line = [(x1, y1), (x2, y2)]
-                    
-    return longest_line
-
 try:
     while True:
         # Get frames from the camera
@@ -107,6 +70,7 @@ try:
 
         # Convert to numpy array
         frame = np.asanyarray(color_frame.get_data())
+
         # Process frame for lane detection
         lane_image = np.copy(frame)
         gray = cv2.cvtColor(lane_image, cv2.COLOR_BGR2GRAY)
@@ -131,33 +95,15 @@ try:
             averaged_right_line = np.array([average_slope_intercept(lane_image, lines_right, left=False)])
         else:
             averaged_right_line = np.array([[0, 0, 0, 0]])
-            
-        cropped_image = region_of_interest(canny)
-        kernel_edge = np.ones((5, 5), np.uint8)
-		# Contours for edge detection
-        edges_edge = cv2.dilate(cropped_image, kernel_edge, iterations=3)
-        _, contours, hierarchy = cv2.findContours(edges_edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-	 # Find the longest horizontal line within the lane boundaries
-        longest_horizontal_line = find_longest_horizontal_line(contours, averaged_lines[0], averaged_lines[1])
-
-	 # Mark the detected edge points if they fall within lanes
-        if longest_horizontal_line:
-            (x1, y1), (x2, y2) = longest_horizontal_line
-            cv2.circle(lane_image, (x1, y1), 10, (0, 255, 0), -1)
-            cv2.circle(lane_image, (x2, y2), 10, (0, 255, 0), -1)
-            print(f"Edge points within lanes: ({x1}, {y1}) and ({x2}, {y2})")
-        else:
-            print("No horizontal line detected within lane boundaries.")
-        
-	# Display detected left and right lanes
+        # Display detected left and right lanes
         left_line_image = display_lines(lane_image, averaged_left_line)
         right_line_image = display_lines(lane_image, averaged_right_line)
 
         # Combine lane lines with original image
         combo_image = cv2.addWeighted(lane_image, 0.8, left_line_image, 1, 1)
         combo_image = cv2.addWeighted(combo_image, 1, right_line_image, 1, 1)
-        combo_image = cv2.addWeighted(combo_image, 1, lane_image, 1, 1)
+
         # Show the image
         cv2.imshow('Lane Detection', combo_image)
 
