@@ -1,0 +1,59 @@
+#include <Servo.h>
+
+// Define servo objects
+Servo servo0;
+Servo servo1;
+
+// Variables for parsing received data
+String receivedData = "";
+int servoIndex = 0;
+int pulseWidth = 0;
+
+void setup() {
+  Serial.begin(39400); // Baud rate to match the sender's HC-05
+  servo0.attach(9);    // Attach servo 0 to pin 9
+  servo1.attach(10);   // Attach servo 1 to pin 10
+}
+
+void loop() {
+  // Check if data is available on the serial port
+  while (Serial.available() > 0) {
+    char receivedChar = Serial.read();
+
+    // Check for end of the data packet
+    if (receivedChar == '\n') {
+      parseData(receivedData); // Parse the received data
+      receivedData = "";       // Clear the buffer for the next packet
+    } else {
+      receivedData += receivedChar; // Accumulate the data
+    }
+  }
+}
+
+// Function to parse the received data
+void parseData(String data) {
+  // Split the string into servo index and pulse width
+  int commaIndex = data.indexOf(',');
+  if (commaIndex != -1) {
+    servoIndex = data.substring(0, commaIndex).toInt();
+    pulseWidth = data.substring(commaIndex + 1).toInt();
+
+    // Control the corresponding servo
+    controlServo(servoIndex, pulseWidth);
+  }
+}
+
+// Function to control servos based on the parsed data
+void controlServo(int servoIndex, int pulseWidth) {
+  switch (servoIndex) {
+    case 0:
+      servo0.writeMicroseconds(pulseWidth); // Control servo 0
+      break;
+    case 1:
+      servo1.writeMicroseconds(pulseWidth); // Control servo 1
+      break;
+    default:
+      // Invalid servo index
+      break;
+  }
+}
